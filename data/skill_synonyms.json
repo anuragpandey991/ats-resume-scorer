@@ -1,0 +1,17 @@
+{
+  "Data Analysis": ["data analytics", "analyzing data", "analyzed data", "data driven analysis", "analytical skills"],
+  "Communication": ["communicate", "communicated", "communicating", "presented findings", "presenting to stakeholders", "written and verbal communication"],
+  "Machine Learning": ["ml", "supervised learning", "unsupervised learning", "predictive modeling", "predictive modelling"],
+  "Leadership": ["led a team", "leading a team", "team lead", "mentored", "mentoring"],
+  "Project Management": ["managed projects", "project planning", "led projects", "project coordination"],
+  "Problem Solving": ["problem solver", "analytical thinking", "troubleshooting"],
+  "REST API": ["rest apis", "restful api", "restful apis", "api design", "api development"],
+  "CI/CD": ["continuous integration", "continuous deployment", "continuous delivery"],
+  "Cross-functional Collaboration": ["cross functional teams", "collaborated across teams", "partnered with teams"],
+  "Docker": ["containerization", "containerized"],
+  "Kubernetes": ["k8s", "container orchestration"],
+  "SQL": ["structured query language", "sql queries", "writing sql"],
+  "A/B Testing": ["ab testing", "split testing", "experimentation"],
+  "Testing": ["unit tests", "test cases", "test coverage", "qa testing"],
+  "Stakeholder Management": ["managing stakeholders", "stakeholder communication", "worked with stakeholders"]
+}

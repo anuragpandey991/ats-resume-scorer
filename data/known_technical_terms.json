@@ -1,0 +1,18 @@
+[
+  "pyspark", "langgraph", "fastapi", "sqlglot", "groq", "pgadmin", "leetcode",
+  "codechef", "scikit-learn", "sklearn", "numpy", "postgresql", "apexcharts",
+  "html2canvas", "jspdf", "streamlit", "pydantic", "psycopg2", "matplotlib",
+  "tensorflow", "pytorch", "keras", "xgboost", "lightgbm", "huggingface",
+  "langchain", "llamaindex", "kubernetes", "dockerfile", "terraform", "ansible",
+  "nginx", "graphql", "grpc", "webpack", "tailwind", "nextjs", "nodejs",
+  "mongodb", "dynamodb", "elasticsearch", "cassandra", "mariadb", "firebase",
+  "github", "gitlab", "bitbucket", "jira", "figma", "notion", "airflow",
+  "kafka", "spark", "hadoop", "databricks", "snowflake", "redshift",
+  "powerbi", "tableau", "excel", "sql", "nosql", "oauth", "jwt", "cicd",
+  "devops", "mlops", "llm", "genai", "chatgpt", "bert", "gpt", "nlp",
+  "cnn", "rnn", "lstm", "api", "apis", "sdk", "cli", "ui", "ux", "iit",
+  "cgpa", "gpa", "b.tech", "m.tech", "mba", "ats", "crm", "erp", "saas",
+  "paas", "iaas", "aws", "gcp", "azure", "ci/cd", "rest", "restful",
+  "isolation forest", "auc", "ks", "psi", "roc", "kpi", "roi", "sow",
+  "etb", "abr", "avc", "dsa", "cibil", "gini"
+]

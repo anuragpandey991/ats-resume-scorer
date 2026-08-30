@@ -1,0 +1,47 @@
+{
+  "programming_languages": [
+    "Python", "Java", "JavaScript", "TypeScript", "C++", "C#", "C", "Go", "Rust",
+    "Ruby", "PHP", "Swift", "Kotlin", "Scala", "R", "MATLAB", "SQL", "Perl", "Dart"
+  ],
+  "web_frontend": [
+    "React", "Angular", "Vue.js", "HTML", "CSS", "SASS", "Tailwind CSS", "Bootstrap",
+    "Next.js", "Redux", "jQuery", "Webpack", "Svelte"
+  ],
+  "web_backend": [
+    "Node.js", "Express.js", "Django", "Flask", "FastAPI", "Spring Boot", "ASP.NET",
+    "Ruby on Rails", "Laravel", "GraphQL", "REST API", "gRPC"
+  ],
+  "databases": [
+    "MySQL", "PostgreSQL", "MongoDB", "Redis", "SQLite", "Oracle", "Cassandra",
+    "DynamoDB", "Elasticsearch", "Firebase", "MariaDB", "Neo4j"
+  ],
+  "cloud_devops": [
+    "AWS", "Azure", "Google Cloud Platform", "GCP", "Docker", "Kubernetes", "Terraform",
+    "Jenkins", "CI/CD", "Ansible", "CloudFormation", "Helm", "Prometheus", "Grafana",
+    "Linux", "Bash", "Nginx", "GitHub Actions", "GitLab CI"
+  ],
+  "data_ml": [
+    "Machine Learning", "Deep Learning", "TensorFlow", "PyTorch", "Scikit-learn",
+    "Pandas", "NumPy", "NLP", "Natural Language Processing", "Computer Vision",
+    "Keras", "Data Analysis", "Data Visualization", "Tableau", "Power BI",
+    "Apache Spark", "Hadoop", "ETL", "Statistics", "A/B Testing", "BERT",
+    "Transformers", "LLM", "Generative AI", "MLOps"
+  ],
+  "mobile": [
+    "Android", "iOS", "React Native", "Flutter", "SwiftUI", "Xamarin"
+  ],
+  "tools_practices": [
+    "Git", "GitHub", "GitLab", "Jira", "Agile", "Scrum", "Kanban", "Unit Testing",
+    "TDD", "Microservices", "System Design", "OOP", "Design Patterns", "API Design",
+    "Postman", "Figma"
+  ],
+  "soft_skills": [
+    "Leadership", "Communication", "Team Management", "Problem Solving",
+    "Project Management", "Stakeholder Management", "Mentoring", "Collaboration",
+    "Time Management", "Critical Thinking", "Cross-functional Collaboration"
+  ],
+  "business_domain": [
+    "Six Sigma", "Product Management", "Business Analysis", "SEO", "Digital Marketing",
+    "Salesforce", "SAP", "CRM", "Financial Modeling", "Supply Chain"
+  ]
+}
