@@ -1,7 +1,6 @@
 """
 text_extraction.py
 Extracts and cleans raw text from uploaded resume files (PDF / DOCX).
-JD is handled as plain pasted text in the UI, so no extraction needed for it.
 """
 
 import re
@@ -11,11 +10,21 @@ import docx
 
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
-    """Extract text from a PDF file given as bytes."""
+    """
+    Extract text from a PDF file given as bytes.
+
+    x_tolerance=1 (default in pdfplumber is 3) matters a lot here: PDFs with
+    justified/tightly-kerned text can have real word gaps smaller than the
+    default tolerance, causing pdfplumber to merge separate words into one
+    ("Random Forest model using" -> "RandomForestmodelusing"). Lowering the
+    tolerance makes it more sensitive to small gaps and fixes this — verified
+    directly against a real resume where this was silently corrupting text
+    and inflating downstream grammar-check false positives.
+    """
     text_chunks = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for page in pdf.pages:
-            page_text = page.extract_text()
+            page_text = page.extract_text(x_tolerance=1)
             if page_text:
                 text_chunks.append(page_text)
     return "\n".join(text_chunks)
@@ -25,7 +34,6 @@ def extract_text_from_docx(file_bytes: bytes) -> str:
     """Extract text from a DOCX file given as bytes."""
     doc = docx.Document(io.BytesIO(file_bytes))
     paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-    # Also grab text inside tables (some resumes use table layouts)
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
@@ -35,18 +43,16 @@ def extract_text_from_docx(file_bytes: bytes) -> str:
 
 
 def clean_text(raw_text: str) -> str:
-    """Basic cleanup: normalize whitespace, remove weird bullet characters."""
+    """Basic cleanup: normalize whitespace, remove weird bullet/icon-font artifacts."""
     if not raw_text:
         return ""
     text = raw_text.replace("\u2022", " ").replace("\uf0b7", " ")  # bullet glyphs
-    # PDF icon fonts (LinkedIn/email/phone icons rendered as glyphs with no real
-    # text mapping) often extract as raw "(cid:123)" character-ID placeholders.
-    # These are extraction artifacts, not real words — strip them before any
-    # downstream text analysis (especially grammar checking) sees them.
+    # Icon-font extraction artifacts: PDFs using icon fonts for contact-info
+    # symbols (phone/email/LinkedIn icons) can't be mapped to real characters,
+    # so pdfplumber emits placeholders like "(cid:239)". Not real words — strip.
     text = re.sub(r"\(cid:\d+\)", " ", text)
-    # Private Use Area unicode characters (U+E000-U+F8FF) are also commonly
-    # used by icon fonts and show up as mojibake/garbled single characters
-    # (e.g. a phone or LinkedIn icon glyph). Strip these too.
+    # Private Use Area unicode chars (U+E000-U+F8FF) are also used by icon
+    # fonts and show up as mojibake/garbled single characters.
     text = re.sub(r"[\uE000-\uF8FF]", " ", text)
     text = re.sub(r"[ \t]+", " ", text)          # collapse repeated spaces/tabs
     text = re.sub(r"\n\s*\n+", "\n", text)        # collapse multiple blank lines
@@ -79,6 +85,5 @@ def extract_resume_text(uploaded_file) -> str:
 
 
 if __name__ == "__main__":
-    # Quick manual test with a plain text string, since we have no sample files here.
     sample = "Experience\n\u2022 Built REST APIs\n\n\n\u2022 Led   a team of 5"
     print(repr(clean_text(sample)))

@@ -25,7 +25,8 @@
     "Pandas", "NumPy", "NLP", "Natural Language Processing", "Computer Vision",
     "Keras", "Data Analysis", "Data Visualization", "Tableau", "Power BI",
     "Apache Spark", "Hadoop", "ETL", "Statistics", "A/B Testing", "BERT",
-    "Transformers", "LLM", "Generative AI", "MLOps"
+    "Transformers", "LLM", "Generative AI", "MLOps", "PySpark", "Google BigQuery",
+    "Big Data"
   ],
   "mobile": [
     "Android", "iOS", "React Native", "Flutter", "SwiftUI", "Xamarin"

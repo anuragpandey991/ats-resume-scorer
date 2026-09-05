@@ -1,7 +1,14 @@
 """
 experience_matcher.py
 Extracts required experience (years) from the JD, and estimates the candidate's
-total experience from date ranges found in the resume. Compares the two.
+total experience from date ranges found in the resume's WORK EXPERIENCE section
+specifically — not the whole document.
+
+Bug this fixes: a naive whole-document date-range scan will pick up education
+date ranges too (e.g. "Nov 2021 - Jul 2025" under an "Education" header), wildly
+overcounting experience. Verified against a real resume where this inflated the
+estimate from ~1.2 years (actual) to ~4.8 years (wrong, because a 3.7-year
+degree date range got counted as work experience).
 """
 
 import re
@@ -14,33 +21,74 @@ MONTHS = {
     "october": 10, "nov": 11, "november": 11, "dec": 12, "december": 12,
 }
 
+# All section headers we know how to recognize, so we can tell where the
+# "work experience" block ends and the next section (Education, Projects,
+# Skills, etc.) begins.
+SECTION_HEADERS = {
+    "education", "work experience", "experience", "professional experience",
+    "employment history", "employment", "internship", "internships",
+    "projects", "project experience", "skills", "technical skills",
+    "core skills", "certifications", "achievements", "awards",
+    "publications", "extracurricular", "activities", "summary", "objective",
+    "about", "profile", "leadership", "volunteering", "coursework",
+}
+
+# Headers that specifically mark the start of the WORK experience block.
+EXPERIENCE_SECTION_HEADERS = {
+    "work experience", "experience", "professional experience",
+    "employment history", "employment",
+}
+
+
+def _normalize_header_line(line: str) -> str:
+    """Strip bullets/punctuation so 'Work Experience:' or '• Experience' still matches a header."""
+    return re.sub(r"[^a-z\s]", "", line.strip().lower()).strip()
+
+
+def extract_work_experience_text(resume_text: str) -> str:
+    """
+    Return only the text between a "Work Experience"-type header and the next
+    (different) section header. Falls back to the full text if no clear
+    experience header is found — better to risk over-counting on unusually
+    formatted resumes than to return nothing.
+    """
+    lines = resume_text.split("\n")
+    header_hits = [(i, _normalize_header_line(l)) for i, l in enumerate(lines)]
+    header_hits = [(i, h) for i, h in header_hits if h in SECTION_HEADERS]
+
+    start_idx = None
+    for i, header in header_hits:
+        if header in EXPERIENCE_SECTION_HEADERS:
+            start_idx = i
+            break
+
+    if start_idx is None:
+        return resume_text  # no clear header found — safest fallback is "don't guess, use everything"
+
+    end_idx = len(lines)
+    for i, header in header_hits:
+        if i > start_idx and header not in EXPERIENCE_SECTION_HEADERS:
+            end_idx = i
+            break
+
+    return "\n".join(lines[start_idx:end_idx])
+
 
 def extract_required_experience(jd_text: str) -> float | None:
-    """
-    Find the required years of experience mentioned in the JD.
-    Handles phrasings like: '5+ years', '3-5 years', 'minimum 2 years',
-    'at least 4 years of experience'.
-    Returns the LOWEST number mentioned (the minimum bar to clear), or None
-    if no such phrase is found.
-    """
     text = jd_text.lower()
 
-    # Pattern 1: ranges like "3-5 years" or "3 to 5 years" -> take the lower bound
     range_match = re.search(r"(\d+)\s*(?:-|to)\s*(\d+)\s*\+?\s*years?", text)
     if range_match:
         return float(range_match.group(1))
 
-    # Pattern 2: "5+ years" or "5 + years"
     plus_match = re.search(r"(\d+)\s*\+\s*years?", text)
     if plus_match:
         return float(plus_match.group(1))
 
-    # Pattern 3: "minimum of 4 years", "at least 4 years", "minimum 4 years"
     min_match = re.search(r"(?:minimum(?:\s+of)?|at least)\s*(\d+)\s*years?", text)
     if min_match:
         return float(min_match.group(1))
 
-    # Pattern 4: plain "4 years of experience"
     plain_match = re.search(r"(\d+)\s*years?\s*(?:of\s*)?experience", text)
     if plain_match:
         return float(plain_match.group(1))
@@ -49,25 +97,21 @@ def extract_required_experience(jd_text: str) -> float | None:
 
 
 def _parse_date_token(token: str, default_day: int = 1) -> datetime | None:
-    """Parse a single date-like token, e.g. 'Jan 2020', '2020', '01/2020'."""
     token = token.strip().lower()
 
     if token in ("present", "current", "now", "till date", "ongoing"):
         return datetime.today()
 
-    # "Jan 2020" or "January 2020"
     m = re.match(r"([a-zA-Z]+)\.?\s+(\d{4})", token)
     if m and m.group(1) in MONTHS:
         return datetime(int(m.group(2)), MONTHS[m.group(1)], default_day)
 
-    # "01/2020" or "1-2020"
     m = re.match(r"(\d{1,2})[/-](\d{4})", token)
     if m:
         month = int(m.group(1))
         if 1 <= month <= 12:
             return datetime(int(m.group(2)), month, default_day)
 
-    # Just a year: "2020"
     m = re.match(r"(\d{4})", token)
     if m:
         return datetime(int(m.group(1)), 1, default_day)
@@ -76,22 +120,9 @@ def _parse_date_token(token: str, default_day: int = 1) -> datetime | None:
 
 
 def extract_experience_ranges(resume_text: str) -> list:
-    """
-    Find date ranges in the resume text, e.g. 'Jan 2019 - Mar 2022',
-    '2018-2021', 'June 2020 – Present'. Returns a list of (start, end) datetime tuples.
-    """
-    # Build an alternation of actual month names only (e.g. "jan|january|feb|...")
-    # so we never accidentally swallow preceding words like a company name.
     month_names = "|".join(sorted(MONTHS.keys(), key=len, reverse=True))
-
-    # A single date token is one of:
-    #   - a real month name + year, e.g. "Jan 2020" / "January 2020"
-    #   - numeric month/year, e.g. "01/2020" or "01-2020"
-    #   - a bare 4-digit year, e.g. "2020"
     date_token = rf"(?:(?:{month_names})\.?\s+\d{{4}}|\d{{1,2}}[/-]\d{{4}}|\d{{4}})"
 
-    # Matches: <date> <dash-like separator> <date-or-present>, with a word
-    # boundary before the first token so we don't start mid-word.
     pattern = re.compile(
         rf"\b({date_token})\s*(?:-|–|—|to)\s*({date_token}|present|current|now)\b",
         re.IGNORECASE,
@@ -99,27 +130,21 @@ def extract_experience_ranges(resume_text: str) -> list:
 
     ranges = []
     for match in pattern.finditer(resume_text):
-        start_raw, end_raw = match.group(1), match.group(2)
-        start = _parse_date_token(start_raw)
-        end = _parse_date_token(end_raw)
+        start = _parse_date_token(match.group(1))
+        end = _parse_date_token(match.group(2))
         if start and end and end >= start:
             ranges.append((start, end))
     return ranges
 
 
 def _merge_overlapping_ranges(ranges: list) -> list:
-    """
-    Merge overlapping/adjacent date ranges before summing duration, so overlapping
-    jobs (or a range mentioned twice) aren't double-counted.
-    """
     if not ranges:
         return []
     sorted_ranges = sorted(ranges, key=lambda r: r[0])
     merged = [sorted_ranges[0]]
-
     for current_start, current_end in sorted_ranges[1:]:
         last_start, last_end = merged[-1]
-        if current_start <= last_end:  # overlaps or touches the previous range
+        if current_start <= last_end:
             merged[-1] = (last_start, max(last_end, current_end))
         else:
             merged.append((current_start, current_end))
@@ -128,40 +153,32 @@ def _merge_overlapping_ranges(ranges: list) -> list:
 
 def estimate_candidate_experience(resume_text: str) -> float:
     """
-    Estimate total years of experience by summing merged date ranges found
-    in the resume. Returns years rounded to 1 decimal place.
+    Estimate total years of experience from date ranges found ONLY within the
+    resume's work-experience section (see extract_work_experience_text) —
+    excludes education, projects, and other non-work date ranges.
     """
-    ranges = extract_experience_ranges(resume_text)
+    work_text = extract_work_experience_text(resume_text)
+    ranges = extract_experience_ranges(work_text)
     merged = _merge_overlapping_ranges(ranges)
-
     total_days = sum((end - start).days for start, end in merged)
-    total_years = round(total_days / 365.25, 1)
-    return total_years
+    return round(total_days / 365.25, 1)
 
 
 def compute_experience_match(jd_text: str, resume_text: str) -> dict:
-    """
-    Combine required vs estimated experience into a single result dict,
-    consistent in shape with the other scoring modules.
-    """
     required_years = extract_required_experience(jd_text)
     candidate_years = estimate_candidate_experience(resume_text)
 
     if required_years is None:
         return {
-            "required_years": None,
-            "candidate_years": candidate_years,
-            "meets_requirement": None,
-            "gap_years": None,
+            "required_years": None, "candidate_years": candidate_years,
+            "meets_requirement": None, "gap_years": None,
         }
 
     gap = round(required_years - candidate_years, 1)
-    meets = candidate_years >= required_years
-
     return {
         "required_years": required_years,
         "candidate_years": candidate_years,
-        "meets_requirement": meets,
+        "meets_requirement": candidate_years >= required_years,
         "gap_years": max(0.0, gap),
     }
 
@@ -169,16 +186,19 @@ def compute_experience_match(jd_text: str, resume_text: str) -> dict:
 if __name__ == "__main__":
     jd_sample = "We are looking for a backend engineer with 4+ years of experience in Python and cloud systems."
     resume_sample = """
-    Software Engineer, TechCorp
-    Jan 2021 - Present
-    Built backend services in Python.
+Education
+Indian Institute of Technology, Guwahati Nov 2021 - Jul 2025
+Bachelor of Technology - CGPA 8.13
 
-    Junior Developer, StartupXYZ
-    June 2019 - Dec 2020
-    Worked on internal tools.
+Work Experience
+Software Engineer, TechCorp
+Jan 2024 - Present
+Built backend services in Python.
+
+Skills
+Python, AWS, Docker
     """
-
-    print("Required experience:", extract_required_experience(jd_sample))
-    print("Date ranges found:", extract_experience_ranges(resume_sample))
-    print("Estimated candidate experience:", estimate_candidate_experience(resume_sample))
+    print("Required:", extract_required_experience(jd_sample))
+    print("Work-experience-section text:", repr(extract_work_experience_text(resume_sample)))
+    print("Estimated candidate years:", estimate_candidate_experience(resume_sample))
     print("Full result:", compute_experience_match(jd_sample, resume_sample))
