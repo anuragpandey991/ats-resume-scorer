@@ -79,6 +79,13 @@ def generate_insights(keyword_result: dict, semantic_result: dict, final_result:
             "closely in a few sections to strengthen the match."
         )
 
+    structure_percent = final_result.get("breakdown", {}).get("structure_formatting")
+    if structure_percent is not None and structure_percent < 70:
+        improvements.append(
+            f"Structure/formatting score is {structure_percent}/100 — see the Resume Quality tab for "
+            f"section, bullet, and date-format details that affect ATS parsing."
+        )
+
     verdict = final_result.get("verdict", "")
     verdict_description = final_result.get("verdict_description", "")
     score = final_result.get("final_score", 0)

@@ -5,14 +5,14 @@ Run with: streamlit run app.py
 """
 
 import streamlit as st
-import plotly.graph_objects as go
 
 from text_extraction import extract_resume_text
-from keyword_matcher import compute_keyword_match
+from keyword_matcher import compute_keyword_match, compute_keyword_match_combined
 from semantic_similarity import compute_semantic_similarity
 from experience_matcher import compute_experience_match
 from resume_quality import compute_quality_report
-from scoring_engine import compute_final_score
+from resume_structure import compute_structure_score
+from scoring_engine import compute_final_score, WEIGHT_PROFILES, DEFAULT_PROFILE
 from insight_generator import generate_insights
 from quality_insight_generator import generate_quality_insights
 from jd_cleaner import clean_jd_text
@@ -28,6 +28,22 @@ st.markdown("""
         background-color: rgba(128,128,128,0.08);
         border-radius: 10px;
         padding: 12px 16px;
+    }
+    .issue-card {
+        border-radius: 10px;
+        padding: 10px 14px;
+        margin-bottom: 8px;
+        border-left: 4px solid;
+    }
+    .issue-card.spelling { background-color: rgba(255, 99, 71, 0.08); border-left-color: #ff6347; }
+    .issue-card.grammar { background-color: rgba(255, 165, 0, 0.10); border-left-color: #ffa500; }
+    .issue-card.punctuation { background-color: rgba(100, 149, 237, 0.10); border-left-color: #6495ed; }
+    .issue-card.style { background-color: rgba(147, 112, 219, 0.10); border-left-color: #9370db; }
+    .issue-card.other { background-color: rgba(128, 128, 128, 0.10); border-left-color: #808080; }
+    .issue-word { font-weight: 600; }
+    .category-pill {
+        display: inline-block; padding: 2px 10px; border-radius: 999px;
+        font-size: 0.75rem; font-weight: 600; margin-bottom: 6px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -48,6 +64,23 @@ with st.expander("⚙️ Options"):
     auto_clean_jd = st.checkbox(
         "Auto-clean job description before scoring (removes benefits/EEO/metadata boilerplate)", value=True
     )
+    use_tfidf_blend = st.checkbox(
+        "Blend TF-IDF term coverage into keyword match (catches JD-specific terms outside the skill taxonomy)",
+        value=True,
+    )
+    weight_profile = st.selectbox(
+        "Scoring weight profile",
+        options=list(WEIGHT_PROFILES.keys()),
+        index=list(WEIGHT_PROFILES.keys()).index(DEFAULT_PROFILE),
+        help="Changes how much each of the four score components (semantic, keyword, experience, structure) "
+             "contributes to the final score.",
+    )
+    with st.popover("What do the profiles mean?"):
+        for name, w in WEIGHT_PROFILES.items():
+            st.write(
+                f"**{name}** — semantic {int(w['semantic']*100)}%, keyword {int(w['keyword']*100)}%, "
+                f"experience {int(w['experience']*100)}%, structure {int(w['structure']*100)}%"
+            )
 
 analyze_clicked = st.button("Analyze", type="primary", use_container_width=True)
 
@@ -74,6 +107,59 @@ def render_insight_block(strengths: list, improvements: list, empty_strengths_ms
             st.markdown(f"- {i}")
 
 
+CATEGORY_STYLE = {
+    "spelling": {"class": "spelling", "icon": "🔤", "color": "#ff6347"},
+    "typos": {"class": "spelling", "icon": "🔤", "color": "#ff6347"},
+    "grammar": {"class": "grammar", "icon": "📝", "color": "#ffa500"},
+    "punctuation": {"class": "punctuation", "icon": "❓", "color": "#6495ed"},
+    "style": {"class": "style", "icon": "🎨", "color": "#9370db"},
+}
+
+
+def _style_for_category(category_name: str) -> dict:
+    key = category_name.strip().lower()
+    for match_key, style in CATEGORY_STYLE.items():
+        if match_key in key:
+            return style
+    return {"class": "other", "icon": "•", "color": "#808080"}
+
+
+def render_grammar_issues(issues: list, filtered_count: int):
+    """
+    Groups grammar/spelling issues by category and renders each as a small
+    colored card (flagged word + message), instead of one long dumped
+    paragraph of markdown bullets.
+    """
+    if not issues:
+        note = "No grammar or spelling issues found." if filtered_count == 0 else \
+            f"No real issues found ({filtered_count} technical term(s)/name(s) correctly skipped)."
+        st.success(f"✅ {note}")
+        return
+
+    grouped = {}
+    for issue in issues:
+        grouped.setdefault(issue["category"], []).append(issue)
+
+    # Order categories with the most issues first, so the biggest problem area is visible immediately.
+    for category, cat_issues in sorted(grouped.items(), key=lambda kv: -len(kv[1])):
+        style = _style_for_category(category)
+        st.markdown(
+            f'<span class="category-pill" style="background-color:{style["color"]}22; color:{style["color"]};">'
+            f'{style["icon"]} {category} · {len(cat_issues)}</span>',
+            unsafe_allow_html=True,
+        )
+        for issue in cat_issues:
+            word = issue.get("flagged_word", "")
+            word_html = f'<span class="issue-word">"{word}"</span> — ' if word else ""
+            st.markdown(
+                f'<div class="issue-card {style["class"]}">{word_html}{issue["message"]}</div>',
+                unsafe_allow_html=True,
+            )
+
+    if filtered_count > 0:
+        st.caption(f"({filtered_count} additional flag(s) were recognized technical terms/names and skipped.)")
+
+
 if analyze_clicked:
     if not resume_file:
         st.error("Please upload a resume file.")
@@ -96,7 +182,11 @@ if analyze_clicked:
         jd_to_score = jd_clean_info["cleaned_text"] or jd_text
 
     with st.spinner("Matching skills/keywords..."):
-        keyword_result = compute_keyword_match(jd_to_score, resume_text)
+        if use_tfidf_blend:
+            keyword_result = compute_keyword_match_combined(jd_to_score, resume_text)
+        else:
+            keyword_result = compute_keyword_match(jd_to_score, resume_text)
+            keyword_result["taxonomy_match_percent"] = keyword_result["match_percent"]
 
     with st.spinner("Computing semantic similarity (loading model on first run, may take a moment)..."):
         semantic_result = compute_semantic_similarity(jd_to_score, resume_text)
@@ -104,10 +194,15 @@ if analyze_clicked:
     with st.spinner("Checking experience requirements..."):
         experience_result = compute_experience_match(jd_to_score, resume_text)
 
+    with st.spinner("Checking structure and formatting..."):
+        structure_report = compute_structure_score(resume_text)
+
     final_result = compute_final_score(
         semantic_percent=semantic_result["similarity_percent"],
         keyword_percent=keyword_result["match_percent"],
         experience_result=experience_result,
+        structure_percent=structure_report["structure_score"],
+        weight_profile=weight_profile,
     )
 
     insights = generate_insights(keyword_result, semantic_result, final_result, experience_result)
@@ -130,18 +225,21 @@ if analyze_clicked:
 
     st.subheader(f"{badge} {verdict} — {score}/100")
     st.write(verdict_description)
-
-    if final_result.get("experience_penalty", 0) > 0:
-        st.caption(f"(Includes a -{final_result['experience_penalty']} point adjustment for an experience gap — see details below.)")
+    st.caption(f"Weight profile: **{weight_profile}** — see breakdown below.")
 
     tab_overview, tab_skills, tab_quality = st.tabs(["📊 Overview", "🧩 Skills Detail", "📋 Resume Quality"])
 
     # ---- Overview tab ----
     with tab_overview:
+        w = final_result["breakdown"]["weights"]
         score_bar("Semantic Similarity", semantic_result["similarity_percent"],
-                   "How closely your resume's overall language/experience matches the JD's context.")
+                   f"How closely your resume's overall language/experience matches the JD's context. (weight: {int(w['semantic']*100)}%)")
         score_bar("Keyword Match", keyword_result["match_percent"],
-                   "Percentage of the JD's named skills found in your resume.")
+                   f"Skill-taxonomy + TF-IDF term coverage against the JD. (weight: {int(w['keyword']*100)}%)")
+        score_bar("Experience Match", final_result["experience_score"],
+                   f"How your estimated years of experience compare to the JD's stated requirement. (weight: {int(w['experience']*100)}%)")
+        score_bar("Structure / Formatting", structure_report["structure_score"],
+                   f"Section presence/order, bullet & date-format consistency, contact-info placement. (weight: {int(w['structure']*100)}%)")
 
         if experience_result.get("required_years") is not None:
             req = experience_result["required_years"]
@@ -176,14 +274,67 @@ if analyze_clicked:
         if keyword_result.get("semantic_matched_skills"):
             st.write("**🔍 Matched via semantic inference:**", ", ".join(keyword_result["semantic_matched_skills"]))
 
+        if use_tfidf_blend and "tfidf_match_percent" in keyword_result:
+            st.divider()
+            st.write(
+                f"**TF-IDF term coverage:** {keyword_result['tfidf_match_percent']}% of the JD's top weighted "
+                f"terms appear in your resume (taxonomy-only match was {keyword_result.get('taxonomy_match_percent', keyword_result['match_percent'])}%)."
+            )
+            if keyword_result.get("tfidf_missing_terms"):
+                st.caption("Top JD terms (by TF-IDF weight) not found in your resume:")
+                st.write(", ".join(keyword_result["tfidf_missing_terms"][:15]))
+
     # ---- Resume quality tab ----
     with tab_quality:
         qscore = quality_report["quality_score"]
-        st.metric("Resume Quality Score", f"{qscore}/100")
-        st.caption("Independent of this specific job — reflects general resume quality.")
-        st.divider()
+        col_q1, col_q2 = st.columns(2)
+        with col_q1:
+            st.metric("Resume Quality Score", f"{qscore}/100")
+            st.caption("Independent of this specific job — reflects general resume quality.")
+        with col_q2:
+            st.metric("Structure/Formatting Score", f"{structure_report['structure_score']}/100")
+            st.caption("Section presence/order, bullets, dates, contact placement.")
 
+        st.divider()
         render_insight_block(quality_insights["strengths"], quality_insights["improvements"])
+
+        st.divider()
+        st.markdown("### 🔎 Spelling & Grammar")
+        grammar = quality_report["grammar"]
+        if grammar.get("available"):
+            render_grammar_issues(grammar["issues"], grammar.get("filtered_technical_terms", 0))
+        elif check_grammar:
+            st.warning("Grammar check was unavailable (couldn't reach the check service).")
+        else:
+            st.caption("Grammar check was turned off in Options.")
+
+        st.markdown("### 🧱 Structure & Formatting Detail")
+        sc1, sc2 = st.columns(2)
+        with sc1:
+            sections = structure_report["sections"]
+            if sections["has_all_required"]:
+                st.success("✅ All key sections found (Experience, Education, Skills).")
+            else:
+                st.error(f"⚠️ Missing section(s): {', '.join(sections['missing_required'])}")
+
+            bullets = structure_report["bullets"]
+            if bullets.get("consistent", True):
+                st.success("✅ Bullet style is consistent.")
+            else:
+                st.warning(f"⚠️ Mixed bullet symbols detected: {bullets.get('symbols_used')}")
+
+        with sc2:
+            dates = structure_report["dates"]
+            if dates.get("consistent", True):
+                st.success("✅ Date formatting is consistent.")
+            else:
+                st.warning(f"⚠️ Mixed date formats: {', '.join(dates.get('mixed_styles', []))}")
+
+            contact = structure_report["contact_placement"]
+            if contact["email_near_top"] and contact["phone_near_top"]:
+                st.success("✅ Contact info is easy to find near the top.")
+            else:
+                st.warning("⚠️ Contact info isn't clearly placed near the top of the document.")
 
         with st.expander("See full quality check details"):
             st.write("**Contact info detected:**", quality_report["contact_info"])
@@ -194,16 +345,6 @@ if analyze_clicked:
                 st.write("**Bullets that could use a number/metric:**")
                 for b in quality_report['quantification']['unquantified_examples']:
                     st.markdown(f"  - {b}")
-            if quality_report["grammar"].get("available"):
-                g = quality_report["grammar"]
-                st.write(f"**Grammar/spelling issues found:** {g.get('total_found', 0)}")
-                if g.get("filtered_technical_terms", 0) > 0:
-                    st.caption(f"({g['filtered_technical_terms']} additional flags were recognized technical terms/names and skipped)")
-                for issue in g["issues"]:
-                    word_note = f" — *\"{issue['flagged_word']}\"*" if issue.get("flagged_word") else ""
-                    st.markdown(f"  - **{issue['category']}**{word_note}: {issue['message']}")
-            elif check_grammar:
-                st.write("Grammar check was unavailable (couldn't reach the check service).")
 
 st.divider()
 st.caption(
